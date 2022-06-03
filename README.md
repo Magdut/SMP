@@ -11,6 +11,7 @@ Mai are un servomotor( care implica poziții relative reglabile între anumite c
 sa invarta senzoru si sa ii ofere o miscare de tip eagle eye(asa e in tehnica- cum se mișcă radarul). Daca este mișcat  stanga dreapta de senzoru ultrasonic
 ( dar  cu grija )se misca putin si face si zgomotul ala de motoras.
 
-Pe suportul de plastic se mai afla și arduino Uno pe care a fost pus codul 
+Pe suportul de plastic se mai afla și arduino Uno pe care a fost pus codul in care este definita fiecare miscare (stanga dreapta fata spate) si se da tensiune pe anumiti pini
 
 Pentru ca tot sistemul sa meargă, a fost necesara o baterie de 9V
+
