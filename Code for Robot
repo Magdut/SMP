@@ -1,0 +1,405 @@
+#include <AFMotor.h>
+#include <Servo.h>    
+#include <Ping.h>
+#include <IRremote.h>
+
+
+#define trigPin A1 //trig pin  
+#define echoPin A2 //echo pin
+#define MAX_DISTANCE_POSSIBLE 1000
+#define MAX_SPEED 100 //   
+#define MOTORS_CALIBRATION_OFFSET  
+#define COLL_DIST 20
+#define TURN_DIST COLL_DIST+10
+Ping sonar(trigPin, echoPin, MAX_DISTANCE_POSSIBLE);
+
+AF_DCMotor leftMotor(3, MOTOR12_8KHZ);
+AF_DCMotor rightMotor(4, MOTOR12_8KHZ);
+Servo neckControllerServoMotor;
+
+int pos = 0;
+int maxDist = 0;
+int maxAngle = 0;
+int maxRight = 0;
+int maxLeft = 0;
+int maxFront = 0;
+int course = 0;
+int curDist = 0;
+String motorSet = "";
+int speedSet = 0;
+
+int red =A3;
+int green =A4;
+int blue =A5;
+
+int RECV_PIN = A0;
+IRrecv irrecv(RECV_PIN);
+decode_results results;
+char contcommand;
+int modecontrol=0;
+int power=0;
+
+
+void setup() {
+  neckControllerServoMotor.attach(10);  
+  neckControllerServoMotor.write(90);
+  delay(2000);
+  checkPath();
+  motorSet = "FORWARD";
+  neckControllerServoMotor.write(90);
+  moveForward();
+
+  Serial.begin(9600);
+  pinMode (red, OUTPUT);
+  pinMode (green, OUTPUT);
+  pinMode (blue, OUTPUT);
+  irrecv.enableIRIn();
+}
+
+void translateIR(){
+  switch(results.value)
+  {
+  case 0xFF18E7: //forward
+    moveForward();
+    break;
+    
+
+  case 0xFF4AB5: //reverse
+    moveBackward();
+    break;
+
+
+  case 0xFF10EF: //left
+    turnLeft();
+    moveStop();
+    break;
+    
+
+  case 0xFF5AA5: //right
+    turnRight();
+    moveStop();
+    break;
+    
+
+   case 0xFF38C7: //release ok
+    moveStop();
+    break;
+
+
+  case 0xFF6897: // *
+    modecontrol=0;
+    moveStop();
+  }
+  delay(500);
+
+  if (results.value == 0xFF22DD) //4
+  {
+    analogWrite (red, 255);
+    analogWrite (green, 0);
+    analogWrite (blue, 0);
+  }
+    
+  if (results.value == 0xFF02FD) //5
+  {
+    analogWrite (red, 0);
+    analogWrite (green, 255);
+    analogWrite (blue, 0);
+  }
+   
+  if (results.value == 0xFFC23D) //6
+  {
+    analogWrite (red, 0);
+    analogWrite (green, 0);
+    analogWrite (blue, 255);
+  }
+    
+    if (results.value == 0xFFE01F) //7
+  {
+    analogWrite (red, 255);
+    analogWrite (green, 0);
+    analogWrite (blue, 255);
+    }
+    
+    if (results.value == 0xFFA857) //8
+  {
+    analogWrite (red, 0);
+    analogWrite (green, 255);
+    analogWrite (blue, 255);
+    }
+   
+    if (results.value == 0xFF906F) //9
+  {
+    analogWrite (red, 255);
+    analogWrite (green, 255);
+    analogWrite (blue, 255);
+  }
+  }
+
+
+
+void loop() {
+  checkForward();  
+  checkPath();
+
+  if (irrecv.decode(&results))
+  {
+   
+  if(results.value==0xFFA25D){      //If an '1' is received, turn on robot
+    power=1; }
+  if(results.value==0xFF9867){      //If a '0' is received, turn off robot
+    moveStop();
+    power=0; }
+  if(results.value==0xFF6897){      //If an '*' is received, switch operating mode from automatic robot to remote control (press also "*" to return to automatic robot mode)
+    modecontrol=1;                  //Activate remote control operating mode
+    moveStop();                     //The robot stops and starts responding to the user's directions
+  }
+  irrecv.resume();                  // Receive the next value
+
+  while(modecontrol==1){            //The system gets into this loop during the remote control mode until modecontrol=0 (with '*')
+  if (irrecv.decode(&results)){     //If something is being received
+    translateIR();                  //Do something depending on the signal received
+    irrecv.resume();                // receive the next value
+  }
+  }
+   
+
+  if (results.value == 0xFF22DD) //4
+  {
+    analogWrite (red, 255);
+    analogWrite (green, 0);
+    analogWrite (blue, 0);
+  }
+    
+  if (results.value == 0xFF02FD) //5
+  {
+    analogWrite (red, 0);
+    analogWrite (green, 255);
+    analogWrite (blue, 0);
+  }
+   
+  if (results.value == 0xFFC23D) //6
+  {
+    analogWrite (red, 0);
+    analogWrite (green, 0);
+    analogWrite (blue, 255);
+  }
+    
+    if (results.value == 0xFFE01F) //7
+  {
+    analogWrite (red, 255);
+    analogWrite (green, 0);
+    analogWrite (blue, 255);
+    }
+    
+    if (results.value == 0xFFA857) //8
+  {
+    analogWrite (red, 0);
+    analogWrite (green, 255);
+    analogWrite (blue, 255);
+    }
+   
+    if (results.value == 0xFF906F) //9
+  {
+    analogWrite (red, 255);
+    analogWrite (green, 255);
+    analogWrite (blue, 255);
+  }
+  }
+}
+
+void checkPath() {
+  int curLeft = 0;
+  int curFront = 0;
+  int curRight = 0;
+  int curDist = 0;
+  neckControllerServoMotor.write(144);
+  delay(120);
+  for(pos = 144; pos >= 36; pos-=18)
+  {
+  neckControllerServoMotor.write(pos);
+  delay(90);
+  checkForward();
+  curDist = readPing();
+  if (curDist < COLL_DIST) {
+    checkCourse();
+    break;
+  }
+  if (curDist < TURN_DIST) {
+    changePath();
+  }
+  if (curDist > curDist) {maxAngle = pos;}
+  if (pos > 90 && curDist > curLeft) { curLeft = curDist;}
+  if (pos == 90 && curDist > curFront) {curFront = curDist;}
+  if (pos < 90 && curDist > curRight) {curRight = curDist;}
+  }
+  maxLeft = curLeft;
+  maxRight = curRight;
+  maxFront = curFront;
+}
+
+void setCourse() {
+  if (maxAngle < 90) {turnRight();}
+  if (maxAngle > 90) {turnLeft();}
+  maxLeft = 0;
+  maxRight = 0;
+  maxFront = 0;
+}
+
+void checkCourse() {
+  moveBackward();
+  delay(500);
+  moveStop();
+  setCourse();
+}
+
+void changePath() {
+  if (pos < 90) {lookLeft();}
+  if (pos > 90) {lookRight();}
+}
+
+
+int readPing() {
+  long duration, cm;
+
+  pinMode(trigPin, OUTPUT);
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  pinMode(echoPin, INPUT);
+  duration = pulseIn(echoPin, HIGH);
+
+  cm = microsecondsToCentimeters(duration);
+ 
+  Serial.print(cm);
+  Serial.print("cm");
+  Serial.println();
+  if(cm==0)
+  {
+  cm = 250;
+  }
+  return cm;
+}
+
+long microsecondsToCentimeters(long microseconds)
+{
+  // The speed of sound is 340 m/s or 29 microseconds per centimeter.
+  // The ping travels out and back, so to find the distance of the
+  // object we take half of the distance travelled.
+  return microseconds / 29 / 2;
+}
+
+void checkForward() { if (motorSet=="FORWARD") {leftMotor.run(FORWARD); rightMotor.run(FORWARD); } }
+
+void checkBackward() { if (motorSet=="BACKWARD") {leftMotor.run(BACKWARD); rightMotor.run(BACKWARD); } }
+
+void moveStop() {leftMotor.run(RELEASE); rightMotor.run(RELEASE);}
+
+void moveForward() {
+  motorSet = "FORWARD";
+  leftMotor.run(FORWARD);
+  rightMotor.run(FORWARD);
+  for (speedSet = 0; speedSet < MAX_SPEED; speedSet +=2)
+  {
+  leftMotor.setSpeed(speedSet);
+  rightMotor.setSpeed(speedSet);
+  delay(5);
+  }
+}
+
+void moveBackward() {
+  motorSet = "BACKWARD";
+  leftMotor.run(BACKWARD);
+  rightMotor.run(BACKWARD);
+  for (speedSet = 0; speedSet < MAX_SPEED; speedSet +=2)
+  {
+  leftMotor.setSpeed(speedSet);
+  rightMotor.setSpeed(speedSet);
+  delay(5);
+  }
+}  
+
+void turnRight() {
+  motorSet = "RIGHT";
+  leftMotor.run(FORWARD);
+  rightMotor.run(BACKWARD);
+  delay(200);
+  motorSet = "FORWARD";
+  leftMotor.run(FORWARD);
+  rightMotor.run(FORWARD);   
+}  
+
+void turnLeft() {
+  motorSet = "LEFT";
+  leftMotor.run(BACKWARD);
+  rightMotor.run(FORWARD);
+  delay(200);
+  motorSet = "FORWARD";
+  leftMotor.run(FORWARD);
+  rightMotor.run(FORWARD);
+}  
+
+void lookRight() {rightMotor.run(BACKWARD); delay(400); rightMotor.run(FORWARD);}
+void lookLeft() {leftMotor.run(BACKWARD); delay(400); leftMotor.run(FORWARD);}
+
+Code for sensors:
+
+int Buzz=A1;
+#include <DHT.h>
+
+#include "DHT.h"
+
+#define DHTPIN A0   // what pin we're connected to
+
+#define DHTTYPE DHT11   // DHT 11
+
+
+DHT dht(DHTPIN, DHTTYPE);
+
+void setup()
+{
+  Serial.begin(9600);
+  for (int DigitalPin = 7; DigitalPin <= 9; DigitalPin++)
+ {
+  pinMode(DigitalPin, OUTPUT);
+  pinMode(Buzz,OUTPUT);
+ }
+ 
+dht.begin();
+}
+ 
+void loop()
+{
+  delay(1000);
+  // Reading temperature or humidity takes about 250 milliseconds!
+  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+ // Read temperature as Celsius (the default)
+  float t = dht.readTemperature();
+ 
+  if (t<=22)
+  {
+  digitalWrite(7, HIGH);
+  digitalWrite(8, LOW);
+  digitalWrite(9, LOW);
+  digitalWrite (Buzz,LOW);
+  }
+  else if (t>22 && t<30)
+  {
+  digitalWrite(8, HIGH);
+  digitalWrite(7, LOW);
+  digitalWrite(9, LOW);
+  digitalWrite(Buzz,LOW);
+  }
+  else if (t>=30)
+  {
+  digitalWrite(9, HIGH);
+  digitalWrite(7, LOW);
+  digitalWrite(8, LOW);
+  digitalWrite(Buzz,HIGH);
+  }
+  Serial.println(t);
+ 
+}
+ 
